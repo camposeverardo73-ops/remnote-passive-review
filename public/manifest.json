@@ -1,0 +1,22 @@
+{
+  "manifestVersion": 1,
+  "id": "mindmap_free_click_review",
+  "name": "Mindmap Free Click Review",
+  "author": "Danzhiduo",
+  "repoUrl": "https://github.com/camposeverardo73-ops/remnote-passive-review",
+  "version": {
+    "major": 0,
+    "minor": 0,
+    "patch": 48
+  },
+  "theme": [],
+  "enableOnMobile": true,
+  "description": "Passive mind-map review with RemNote Native Card scheduling, classifications, masks, and continuous Due/New study sessions.",
+  "requestNative": false,
+  "requiredScopes": [
+    {
+      "type": "All",
+      "level": "ReadCreateModify"
+    }
+  ]
+}
