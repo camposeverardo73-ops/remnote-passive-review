@@ -347,9 +347,7 @@ async function preparePdfSources(
   audit(options, 'DECODE_START', file.name, 'pdf');
   let pdfjs: any;
   try {
-    pdfjs = await import('pdfjs-dist/build/pdf');
-    const workerModule: any = await import('pdfjs-dist/build/pdf.worker.entry');
-    pdfjs.GlobalWorkerOptions.workerSrc = workerModule.default ?? workerModule;
+    pdfjs = await import('pdfjs-dist/webpack.mjs');
   } catch (caught) {
     throw new Error(`DECODE_FAIL: PDF 解码器加载失败：${caught instanceof Error ? caught.message : String(caught)}`);
   }

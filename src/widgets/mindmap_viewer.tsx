@@ -1234,11 +1234,12 @@ function MindmapViewer() {
         setSourceMessage('RN 写入结果未完成闭环验证；当前卡已锁定，未伪造成功状态。');
         return;
       }
+      const verifiedAfter = after;
       setRatings((current) => ({
         ...current,
         [regionId]: {
           state: 'DONE',
-          nextRepetitionTime: after.next_repetition_time,
+          nextRepetitionTime: verifiedAfter.next_repetition_time,
           score,
           nativeStateChanged: true,
         },
@@ -1247,12 +1248,12 @@ function MindmapViewer() {
       setSchedule((current) => ({
         ...current,
         [regionId]: {
-          state: after.state,
+          state: verifiedAfter.state,
           cardId,
-          remId: after.rem_id,
-          nextRepetitionTime: normalizeUnixTime(after.next_repetition_time),
-          lastRepetitionTime: normalizeUnixTime(after.last_repetition_time),
-          repetitionHistoryLength: after.repetition_history_length,
+          remId: verifiedAfter.rem_id,
+          nextRepetitionTime: normalizeUnixTime(verifiedAfter.next_repetition_time),
+          lastRepetitionTime: normalizeUnixTime(verifiedAfter.last_repetition_time),
+          repetitionHistoryLength: verifiedAfter.repetition_history_length,
           reviewedToday: history.reviewedToday,
           latestReviewTime: history.latestReviewTime,
         },

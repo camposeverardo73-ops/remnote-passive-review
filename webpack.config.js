@@ -19,6 +19,9 @@ const SANDBOX_SUFFIX = '-sandbox';
 
 const config = {
   mode: isProd ? 'production' : 'development',
+  experiments: {
+    topLevelAwait: true,
+  },
   entry: glob
     .sync('./src/widgets/**/*.tsx')
     .reduce((obj, el) => {
