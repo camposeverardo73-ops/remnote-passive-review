@@ -1,7 +1,7 @@
 {
   "private": true,
   "name": "remnote-mindmap-free-click-review",
-  "version": "0.0.48",
+  "version": "0.0.49",
   "license": "MIT",
   "scripts": {
     "check-types": "tsc",
@@ -14,7 +14,7 @@
     "@remnote/plugin-sdk": "0.0.46",
     "react": "^17.0.2",
     "react-dom": "^17.0.2",
-    "pdfjs-dist": "4.2.67"
+    "pdfjs-dist": "3.11.174"
   },
   "devDependencies": {
     "@pmmmwh/react-refresh-webpack-plugin": "^0.5.7",
@@ -42,9 +42,5 @@
     "webpack": "^5.73.0",
     "webpack-cli": "^4.10.0",
     "webpack-dev-server": "^4.9.3"
-  },
-  "overrides": {
-    "nanoid": "3.3.18",
-    "underscore": "1.13.8"
   }
 }
