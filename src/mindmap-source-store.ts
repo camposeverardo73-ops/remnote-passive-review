@@ -66,7 +66,7 @@ type SourceAssetMeta = {
   mime_type: string;
 };
 
-const ASSET_CHUNK_SIZE = 480_000;
+const ASSET_CHUNK_SIZE = 32_768;
 
 
 export function sourceFileId(source: Pick<MindmapSource, 'source_id' | 'file_id'>) {
@@ -220,7 +220,7 @@ function canvasToCompressedJpeg(canvas: HTMLCanvasElement) {
 }
 
 async function compressImage(file: File, buffer: ArrayBuffer, options?: ImportOptions) {
-  if (!/^image\/(png|jpeg|webp)$/i.test(file.type) && !/\.(png|jpe?g|webp)$/i.test(file.name)) {
+  if (!/^image\/(png|jpe?g|webp|gif|bmp|avif|svg\+xml)$/i.test(file.type) && !/\.(png|jpe?g|webp|gif|bmp|avif|svg)$/i.test(file.name)) {
     throw new Error(`DECODE_FAIL: 不支持的图片类型 ${file.type || 'unknown'}。`);
   }
   if (buffer.byteLength > 20 * 1024 * 1024) {
@@ -347,7 +347,9 @@ async function preparePdfSources(
   audit(options, 'DECODE_START', file.name, 'pdf');
   let pdfjs: any;
   try {
-    pdfjs = await import('pdfjs-dist/webpack.mjs');
+    pdfjs = await import('pdfjs-dist/build/pdf');
+    const workerModule: any = await import('pdfjs-dist/build/pdf.worker.entry');
+    pdfjs.GlobalWorkerOptions.workerSrc = workerModule.default ?? workerModule;
   } catch (caught) {
     throw new Error(`DECODE_FAIL: PDF 解码器加载失败：${caught instanceof Error ? caught.message : String(caught)}`);
   }
@@ -359,9 +361,15 @@ async function preparePdfSources(
   }
   const pageCount = Number(pdf.numPages) || 0;
   if (!pageCount) throw new Error('DECODE_FAIL: PDF 没有可用页面。');
-  const requested = options?.selectPdfPages ? await options.selectPdfPages(file, pageCount) : null;
-  const selectedPages = normalizePdfPages(pageCount, requested);
-  if (!selectedPages.length) throw new Error('DECODE_FAIL: 没有选择任何 PDF 页面。');
+  let selectedPages: number[];
+  if (options?.selectPdfPages) {
+    const requested = await options.selectPdfPages(file, pageCount);
+    if (requested === null) throw new Error('IMPORT_CANCELLED');
+    selectedPages = normalizePdfPages(pageCount, requested);
+  } else {
+    selectedPages = normalizePdfPages(pageCount, null);
+  }
+  if (!selectedPages.length) throw new Error(`DECODE_FAIL: 页码选择无效（共 ${pageCount} 页），请重新导入并输入如 1-3,5。`);
   audit(options, 'DECODE_SUCCESS', file.name, `pdf pages=${selectedPages.join(',')}`);
 
   const baseTitle = file.name.replace(/\.[^.]+$/, '') || 'PDF';
@@ -446,7 +454,7 @@ export async function importMindmapFiles(plugin: RNPlugin, files: readonly File[
       try {
         if (/application\/pdf/i.test(file.type) || /\.pdf$/i.test(file.name)) {
           added.push(...await preparePdfSources(plugin, file, fileId, buffer, digest, options));
-        } else if (/^image\/(png|jpeg|webp)$/i.test(file.type) || /\.(png|jpe?g|webp)$/i.test(file.name)) {
+        } else if (/^image\/(png|jpe?g|webp|gif|bmp|avif|svg\+xml)$/i.test(file.type) || /\.(png|jpe?g|webp|gif|bmp|avif|svg)$/i.test(file.name)) {
           added.push(await prepareImageSource(plugin, file, fileId, index, digest, buffer, options));
         } else {
           throw new Error(`DECODE_FAIL: 不支持的文件类型 ${file.type || file.name}。`);
