@@ -24,6 +24,7 @@ import {
   readSourceLibrary,
   removeMindmapSource,
   resolveMindmapSourceImage,
+  saveSourceLibrary,
   selectSource,
   UPLOAD_AUDIT_KEY,
   type MindmapSource,
@@ -453,11 +454,37 @@ function MindmapViewer() {
   const [readError, setReadError] = useState<string | null>(null);
   const [bindingErrors, setBindingErrors] = useState<Record<string, string>>({});
   const [sourceMessage, setSourceMessage] = useState<string | null>(null);
+  const [pdfPageDialog, setPdfPageDialog] = useState<{
+    fileName: string;
+    pageCount: number;
+    resolve: (value: number[] | null) => void;
+  } | null>(null);
+  const [pdfPageInput, setPdfPageInput] = useState('');
   const [loading, setLoading] = useState(true);
   const [lastNativeSyncAt, setLastNativeSyncAt] = useState<number | null>(null);
   const [lastNativeWrite, setLastNativeWrite] = useState<{ label: string; interval: string | null; cardId: string } | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const [sidePanel, setSidePanel] = useState<SidePanel>(null);
+  const [pageListOpen, setPageListOpen] = useState(false);
+  const [renamingSourceId, setRenamingSourceId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const pageClickTimer = useRef<number | null>(null);
+
+  const renameSource = async (sourceId: string, newTitle: string) => {
+    const trimmed = newTitle.trim();
+    setRenamingSourceId(null);
+    if (!trimmed || !sourceLibrary) return;
+    const nextSources = sourceLibrary.sources.map((s) =>
+      s.source_id === sourceId ? { ...s, title: trimmed } : s,
+    );
+    const nextLibrary = { ...sourceLibrary, sources: nextSources };
+    setSourceLibrary(nextLibrary);
+    try {
+      await saveSourceLibrary(plugin, nextLibrary);
+    } catch {
+      // In-memory state is updated; persistence will be retried on next save.
+    }
+  };
   const [drafts, setDrafts] = useState<ManualRegionDraft[]>([]);
   const [selectedDraftId, setSelectedDraftId] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<'IDLE' | 'SAVING' | 'ERROR'>('IDLE');
@@ -772,8 +799,16 @@ function MindmapViewer() {
           // Fast path: restore the persistent index immediately. Current-page RN
           // state is refreshed on focus/load; explicit “重新连接” remains the
           // full-library reconciliation path.
-          commitStudyIndex(cached);
-          installRuntimeIndex(cached, studyLibrary);
+          // Prune orphaned entries whose sourceId no longer exists (e.g. pages
+          // deleted outside the plugin, or stale entries from pre-patch-9 imports).
+          // Only removes orphans; never touches valid items.
+          const validSourceIds = new Set(sources.map((s) => s.source_id));
+          const pruned = cached.filter((item) => validSourceIds.has(item.sourceId));
+          if (pruned.length !== cached.length) {
+            await savePersistedStudyReviewIndex(plugin, sources, pruned);
+          }
+          commitStudyIndex(pruned);
+          installRuntimeIndex(pruned, studyLibrary);
           setStudyIndexReady(true);
           return;
         }
@@ -991,6 +1026,21 @@ function MindmapViewer() {
 
   }, []);
 
+  const cancelPdfPageDialog = () => {
+    const dialog = pdfPageDialog;
+    if (!dialog) return;
+    setPdfPageDialog(null);
+    dialog.resolve(null);
+  };
+
+  const confirmPdfPageDialog = () => {
+    const dialog = pdfPageDialog;
+    if (!dialog) return;
+    const pages = parsePageSelection(pdfPageInput, dialog.pageCount);
+    setPdfPageDialog(null);
+    dialog.resolve(pages);
+  };
+
   const importImages = async (files: readonly File[]) => {
     if (!files.length) return;
     const events: ImportAuditEvent[] = [];
@@ -1003,14 +1053,11 @@ function MindmapViewer() {
     try {
       const imported = await importMindmapFiles(plugin, files, {
         onStage,
-        selectPdfPages: async (file, pageCount) => {
-          const input = window.prompt(
-            `${file.name} 共 ${pageCount} 页。\n留空=导入全部；也可输入 1-3,5,8。\n取消=取消这次导入。`,
-            '',
-          );
-          if (input === null) return [];
-          return parsePageSelection(input, pageCount);
-        },
+        selectPdfPages: (file, pageCount) =>
+          new Promise<number[] | null>((resolve) => {
+            setPdfPageInput('');
+            setPdfPageDialog({ fileName: file.name, pageCount, resolve });
+          }),
       });
       await plugin.storage.setSession(UPLOAD_AUDIT_KEY, events.slice(-120));
       let nextStudyLibrary = studyLibrary;
@@ -1035,9 +1082,12 @@ function MindmapViewer() {
       setTransform({ x: 0, y: 0, scale: 1 });
       await loadRegions(imported.source.source_id);
       onStage({ stage: 'INDEX_UPDATE', file_name: files[0].name, detail: `${imported.sources.length} pages`, at: new Date().toISOString() });
-      const nextIndex = [...studyIndex];
-      commitStudyIndex(nextIndex);
       try {
+        // Rebuild the study index from all sources (including the newly imported
+        // pages). The old code just copied the previous index, so newly added
+        // cards were invisible to the review filters and cross-page navigation.
+        const nextIndex = await buildStudyReviewIndex(plugin, imported.library.sources);
+        commitStudyIndex(nextIndex);
         installRuntimeIndex(nextIndex, nextStudyLibrary);
         await savePersistedStudyReviewIndex(plugin, imported.library.sources, nextIndex);
       } catch (caught) {
@@ -1052,6 +1102,11 @@ function MindmapViewer() {
       setMode('edit');
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : String(caught);
+      if (message.includes('IMPORT_CANCELLED')) {
+        await plugin.storage.setSession(UPLOAD_AUDIT_KEY, events.slice(-120));
+        setSourceMessage('已取消导入。');
+        return;
+      }
       if (!events.some((event) => event.stage.endsWith('_FAIL'))) {
         const stage: ImportAuditEvent['stage'] = message.includes('INDEX') ? 'INDEX_FAIL' : message.includes('PERSIST') ? 'PERSIST_FAIL' : message.includes('DECODE') ? 'DECODE_FAIL' : 'FILE_READ_FAIL';
         onStage({ stage, file_name: files[0]?.name ?? 'unknown', detail: message, at: new Date().toISOString() });
@@ -1234,12 +1289,11 @@ function MindmapViewer() {
         setSourceMessage('RN 写入结果未完成闭环验证；当前卡已锁定，未伪造成功状态。');
         return;
       }
-      const verifiedAfter = after;
       setRatings((current) => ({
         ...current,
         [regionId]: {
           state: 'DONE',
-          nextRepetitionTime: verifiedAfter.next_repetition_time,
+          nextRepetitionTime: after.next_repetition_time,
           score,
           nativeStateChanged: true,
         },
@@ -1248,12 +1302,12 @@ function MindmapViewer() {
       setSchedule((current) => ({
         ...current,
         [regionId]: {
-          state: verifiedAfter.state,
+          state: after.state,
           cardId,
-          remId: verifiedAfter.rem_id,
-          nextRepetitionTime: normalizeUnixTime(verifiedAfter.next_repetition_time),
-          lastRepetitionTime: normalizeUnixTime(verifiedAfter.last_repetition_time),
-          repetitionHistoryLength: verifiedAfter.repetition_history_length,
+          remId: after.rem_id,
+          nextRepetitionTime: normalizeUnixTime(after.next_repetition_time),
+          lastRepetitionTime: normalizeUnixTime(after.last_repetition_time),
+          repetitionHistoryLength: after.repetition_history_length,
           reviewedToday: history.reviewedToday,
           latestReviewTime: history.latestReviewTime,
         },
@@ -1480,6 +1534,11 @@ function MindmapViewer() {
     editorGesture.current = null;
   };
 
+  const isLongImage = useMemo(() => {
+    if (!currentSource) return false;
+    return currentSource.height > currentSource.width * 1.4;
+  }, [currentSource]);
+
   const fittedStageSize = useMemo(() => {
     if (!currentSource || viewportSize.width <= 0 || viewportSize.height <= 0) {
       return { width: currentSource?.width ?? 1, height: currentSource?.height ?? 1 };
@@ -1487,15 +1546,20 @@ function MindmapViewer() {
     const padding = 18;
     const availableWidth = Math.max(1, viewportSize.width - padding * 2);
     const availableHeight = Math.max(1, viewportSize.height - padding * 2);
-    const scale = Math.min(
-      availableWidth / currentSource.width,
-      availableHeight / currentSource.height,
-    );
+    // Long images: fit WIDTH so text stays readable; the viewport scrolls
+    // vertically (mouse wheel) to reveal the lower part. Normal images keep
+    // the original whole-fit behavior.
+    const scale = isLongImage
+      ? availableWidth / currentSource.width
+      : Math.min(
+          availableWidth / currentSource.width,
+          availableHeight / currentSource.height,
+        );
     return {
       width: Math.max(1, Math.round(currentSource.width * scale)),
       height: Math.max(1, Math.round(currentSource.height * scale)),
     };
-  }, [currentSource, viewportSize]);
+  }, [currentSource, viewportSize, isLongImage]);
 
   const selectedDraft = drafts.find((region) => region.region_id === selectedDraftId);
   const sourceList = sourceLibrary?.sources ?? [];
@@ -1625,7 +1689,10 @@ function MindmapViewer() {
     };
 
     setMode('review');
-    setTransform({ x: 0, y: 0, scale: 1 });
+    // Never auto-reset zoom on rating navigation (same page or cross-page).
+    // The user zooms once to read comfortably; resetting forces them to
+    // re-zoom for every card. Zoom only resets on explicit user actions:
+    // the fit (%) button, the page navigator, or mode switches.
     if (item.sourceId !== currentSource?.source_id) {
       const fileChanged = item.fileId !== (currentSource ? sourceFileId(currentSource) : null);
       await loadRegions(item.sourceId, { preserveFilter: true, targetRegionId: item.regionId });
@@ -1743,9 +1810,19 @@ function MindmapViewer() {
       position: nextPosition,
       startedAt: afterScore && existingSession ? existingSession.startedAt : new Date().toISOString(),
     };
-    await navigateToCard(first.cardId, first, lookupMs, nextFilter);
+    // Direct navigation: `first` is already a valid StudyReviewItem from the
+    // correct scope's queue. Bypass navigateToCard's key lookup, which can
+    // silently fail when the runtime index is inconsistent, leaving the UI
+    // stuck in "preparing next question" with no active region.
+    await navigateToStudyItem(first, lookupMs, nextFilter);
     const label = nextFilter === 'DUE' ? '到期' : nextFilter === 'NEW' ? '新卡' : nextFilter === 'COMPLETED' ? '完成' : '剩余';
-    if (!afterScore) setSourceMessage(`已进入“${categoryName}”${label}连续复习 · ${nextQueue.length} 张`);
+    if (!afterScore) {
+      // Show which pages the cards are on, so the user can manually navigate
+      // if auto-navigation fails (e.g. corrupt index entries from pre-patch-9 imports).
+      const pages = [...new Set(nextQueue.map((item) => item.sourceTitle).filter(Boolean))];
+      const pageInfo = pages.length ? `（位于：${pages.join('、')}）` : '';
+      setSourceMessage(`已进入“${categoryName}”${label}连续复习 · ${nextQueue.length} 张${pageInfo}`);
+    }
   };
 
   const selectStudyCategory = async (categoryId: string) => {
@@ -1891,6 +1968,92 @@ function MindmapViewer() {
       className={`mindmap-review-shell mode-${mode} ${mode === 'review' && activeRegionId && regionState[activeRegionId] !== 'REVEALED' ? 'question-phase' : ''}`}
       data-build-id={MANUAL_REGION_BUILD_ID}
     >
+      {pdfPageDialog ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="选择 PDF 页面"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 1000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: 'rgba(15, 23, 42, 0.45)',
+          }}
+          onClick={cancelPdfPageDialog}
+        >
+          <div
+            style={{
+              width: 'min(420px, 90vw)',
+              backgroundColor: '#ffffff',
+              borderRadius: 12,
+              padding: '20px 22px',
+              boxShadow: '0 12px 40px rgba(15, 23, 42, 0.25)',
+            }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h3 style={{ margin: '0 0 8px', fontSize: 16 }}>选择 PDF 页面</h3>
+            <p style={{ margin: '0 0 4px', fontSize: 13, color: '#334155' }}>
+              {pdfPageDialog.fileName} 共 {pdfPageDialog.pageCount} 页。
+            </p>
+            <p style={{ margin: '0 0 12px', fontSize: 13, color: '#64748b' }}>
+              留空=导入全部；也可输入 1-3,5,8。
+            </p>
+            <input
+              autoFocus
+              value={pdfPageInput}
+              onChange={(event) => setPdfPageInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') confirmPdfPageDialog();
+                if (event.key === 'Escape') cancelPdfPageDialog();
+              }}
+              placeholder="例如：1-3,5"
+              style={{
+                width: '100%',
+                boxSizing: 'border-box',
+                fontSize: 14,
+                padding: '8px 10px',
+                border: '1px solid #cbd5e1',
+                borderRadius: 8,
+                marginBottom: 14,
+              }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button
+                type="button"
+                onClick={cancelPdfPageDialog}
+                style={{
+                  fontSize: 14,
+                  padding: '8px 18px',
+                  borderRadius: 8,
+                  border: '1px solid #cbd5e1',
+                  backgroundColor: '#ffffff',
+                  cursor: 'pointer',
+                }}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={confirmPdfPageDialog}
+                style={{
+                  fontSize: 14,
+                  padding: '8px 18px',
+                  borderRadius: 8,
+                  border: 'none',
+                  backgroundColor: '#4f46e5',
+                  color: '#ffffff',
+                  cursor: 'pointer',
+                }}
+              >
+                导入
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <header className="review-toolbar" aria-label="复习控制">
         <div className="toolbar-left">
           <button className="toolbar-button return-button" type="button" onClick={() => void returnToRemNote()}>
@@ -1940,9 +2103,141 @@ function MindmapViewer() {
           >
             ‹
           </button>
-          <div className="page-meta">
-            <strong>{pageCount ? `${currentPageIndex + 1} / ${pageCount}` : '0 / 0'}</strong>
-            <span>{currentSource?.title ?? '未选择脑图'}</span>
+          <div style={{ position: 'relative' }}>
+            <div
+              className="page-meta"
+              role="button"
+              tabIndex={0}
+              aria-expanded={pageListOpen}
+              aria-label="页面目录，点击展开或收起"
+              title="点击展开页面目录"
+              onClick={() => setPageListOpen((open) => !open)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  setPageListOpen((open) => !open);
+                }
+              }}
+              style={{ cursor: 'pointer' }}
+            >
+              <strong>{pageCount ? `${currentPageIndex + 1} / ${pageCount}` : '0 / 0'}</strong>
+              <span>{currentSource?.title ?? '未选择脑图'}</span>
+            </div>
+            {pageListOpen ? (
+              <div
+                role="listbox"
+                aria-label="页面目录"
+                style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 6px)',
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  zIndex: 50,
+                  minWidth: 220,
+                  maxWidth: 320,
+                  maxHeight: 320,
+                  overflowY: 'auto',
+                  backgroundColor: '#ffffff',
+                  borderRadius: 12,
+                  boxShadow: '0 8px 32px rgba(15, 23, 42, 0.18)',
+                  border: '1px solid rgba(15, 23, 42, 0.08)',
+                  padding: 6,
+                }}
+              >
+                {sourceList.map((source, index) => {
+                  const isCurrent = index === currentPageIndex;
+                  const isRenaming = renamingSourceId === source.source_id;
+                  return (
+                    <div
+                      key={source.source_id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        width: '100%',
+                        padding: '8px 10px',
+                        borderRadius: 8,
+                        backgroundColor: isCurrent ? '#eef2ff' : 'transparent',
+                      }}
+                    >
+                      <span style={{ minWidth: 40, fontWeight: 600, flexShrink: 0, fontSize: 13, color: isCurrent ? '#1e293b' : '#475569' }}>
+                        {index + 1} / {pageCount}
+                      </span>
+                      {isRenaming ? (
+                        <input
+                          type="text"
+                          value={renameValue}
+                          onChange={(event) => setRenameValue(event.target.value)}
+                          onKeyDown={(event) => {
+                            event.stopPropagation();
+                            if (event.key === 'Enter') {
+                              void renameSource(source.source_id, renameValue);
+                            } else if (event.key === 'Escape') {
+                              setRenamingSourceId(null);
+                            }
+                          }}
+                          onBlur={() => {
+                            void renameSource(source.source_id, renameValue);
+                          }}
+                          onClick={(event) => event.stopPropagation()}
+                          onDoubleClick={(event) => event.stopPropagation()}
+                          // eslint-disable-next-line jsx-a11y/no-autofocus
+                          autoFocus
+                          style={{
+                            flex: 1,
+                            minWidth: 0,
+                            fontSize: 13,
+                            padding: '4px 8px',
+                            borderRadius: 6,
+                            border: '1px solid #6366f1',
+                            outline: 'none',
+                            color: '#1e293b',
+                          }}
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          title="单击跳转，双击重命名"
+                          onClick={() => {
+                            if (pageClickTimer.current) return;
+                            pageClickTimer.current = window.setTimeout(() => {
+                              pageClickTimer.current = null;
+                              setPageListOpen(false);
+                              void goToPage(index);
+                            }, 250);
+                          }}
+                          onDoubleClick={(event) => {
+                            event.stopPropagation();
+                            if (pageClickTimer.current) {
+                              clearTimeout(pageClickTimer.current);
+                              pageClickTimer.current = null;
+                            }
+                            setRenameValue(source.title);
+                            setRenamingSourceId(source.source_id);
+                          }}
+                          style={{
+                            flex: 1,
+                            minWidth: 0,
+                            border: 'none',
+                            backgroundColor: 'transparent',
+                            padding: 0,
+                            fontSize: 13,
+                            textAlign: 'left',
+                            cursor: 'pointer',
+                            color: isCurrent ? '#1e293b' : '#475569',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {source.title}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
           </div>
           <button
             className="page-arrow"
@@ -1984,7 +2279,7 @@ function MindmapViewer() {
             className="hidden-file-input"
             type="file"
             multiple
-            accept="image/png,image/jpeg,image/webp,application/pdf,.pdf"
+            accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,image/avif,image/svg+xml,application/pdf,.pdf,.png,.jpg,.jpeg,.webp,.gif,.bmp,.avif,.svg"
             onChange={(event) => {
               const files = Array.from(event.currentTarget.files ?? []);
               event.currentTarget.value = '';
@@ -2052,7 +2347,7 @@ function MindmapViewer() {
           {completedTodayCount > 0 && remainingTodayCount === 0 ? <strong>今日完成</strong> : null}
         </div>
         <div className="rn-native-status">
-          {sourceMessage ? <span className="source-message">{sourceMessage}</span> : null}
+          {sourceMessage ? <span className="source-message" title={sourceMessage}>{sourceMessage}</span> : null}
           {mode === 'free' ? <span>自由背诵 · 不写 RN 调度</span> : null}
           {mode === 'edit' ? <span>遮挡编辑 · 四个学习导航仍可直接进入 Review</span> : null}
           {mode === 'review' ? <span>RN Native Card 已校验 {verifiedNativeCount}/{boundCount}</span> : null}
@@ -2316,6 +2611,7 @@ function MindmapViewer() {
       <div
         ref={viewportRef}
         className={`mindmap-viewport ${mode === 'edit' ? 'editing' : ''}`}
+        style={isLongImage ? { overflowY: 'auto', overflowX: 'hidden', alignItems: 'start' } : undefined}
         onPointerDown={onViewportPointerDown}
         onPointerMove={onViewportPointerMove}
         onPointerUp={finishViewportPointer}
@@ -2435,6 +2731,85 @@ function MindmapViewer() {
           </aside>
         ) : null}
 
+        {currentSource ? (
+          <div
+            role="group"
+            aria-label="缩放控制"
+            onPointerDown={(event) => event.stopPropagation()}
+            style={{
+              position: 'absolute',
+              top: 12,
+              right: 12,
+              zIndex: 30,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 2,
+              backgroundColor: 'rgba(255, 255, 255, 0.92)',
+              borderRadius: 999,
+              padding: '4px 6px',
+              boxShadow: '0 2px 12px rgba(15, 23, 42, 0.18)',
+              border: '1px solid rgba(15, 23, 42, 0.08)',
+              userSelect: 'none',
+            }}
+          >
+            <button
+              type="button"
+              aria-label="缩小"
+              title="缩小"
+              onClick={() => zoomBy(1 / 1.25)}
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: 999,
+                border: 'none',
+                backgroundColor: 'transparent',
+                color: '#1e293b',
+                fontSize: 16,
+                lineHeight: 1,
+                cursor: 'pointer',
+              }}
+            >
+              −
+            </button>
+            <button
+              type="button"
+              aria-label="适应屏幕"
+              title="适应屏幕"
+              onClick={() => setTransform({ x: 0, y: 0, scale: 1 })}
+              style={{
+                minWidth: 52,
+                height: 28,
+                borderRadius: 999,
+                border: 'none',
+                backgroundColor: 'transparent',
+                color: '#1e293b',
+                fontSize: 12,
+                cursor: 'pointer',
+              }}
+            >
+              {Math.round(transform.scale * 100)}%
+            </button>
+            <button
+              type="button"
+              aria-label="放大"
+              title="放大"
+              onClick={() => zoomBy(1.25)}
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: 999,
+                border: 'none',
+                backgroundColor: 'transparent',
+                color: '#1e293b',
+                fontSize: 16,
+                lineHeight: 1,
+                cursor: 'pointer',
+              }}
+            >
+              +
+            </button>
+          </div>
+        ) : null}
       </div>
 
       {mode === 'review' && reviewFilter === 'COMPLETED' ? (
