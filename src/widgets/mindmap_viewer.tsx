@@ -2150,6 +2150,7 @@ function MindmapViewer() {
                   return (
                     <div
                       key={source.source_id}
+                      className="page-directory-item"
                       style={{
                         display: 'flex',
                         alignItems: 'center',
