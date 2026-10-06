@@ -2534,7 +2534,7 @@ function MindmapViewer() {
                               disabled={activeStudyCategoryId === 'tcm-all' || inheritedByFile}
                               onChange={(event) => void toggleSourceInActiveCategory(source.source_id, event.currentTarget.checked)}
                             />
-                            <span>{source.file_name ? `${source.file_name} · ` : ''}{source.page_number ? `第 ${source.page_number} 页` : source.title}</span>
+                            <span>{source.title}</span>
                           </label>
                         );
                       }) : <p className="simple-empty-note">还没有加入页面。点“＋ 添加内容”即可。</p>}
@@ -2561,7 +2561,7 @@ function MindmapViewer() {
                                       disabled={inheritedByFile}
                                       onChange={(event) => void toggleSourceInActiveCategory(source.source_id, event.currentTarget.checked)}
                                     />
-                                    <span>{source.page_number ? `第 ${source.page_number} 页` : source.title}</span>
+                                    <span>{source.title}</span>
                                   </label>
                                 );
                               })}
