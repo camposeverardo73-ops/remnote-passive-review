@@ -991,15 +991,38 @@ button { -webkit-tap-highlight-color: transparent; }
   justify-content: space-between;
   gap: 8px;
   padding: 6px 9px;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  background: #fff;
+  border: 1px solid rgba(223, 230, 240, 0.75);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.62);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    0 1px 0 rgba(63,77,104,.04),
+    0 4px 12px rgba(38,54,82,.05);
   color: var(--ink);
   cursor: pointer;
   text-align: left;
+  transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease, background-color .12s ease;
 }
-.study-category-list > button:hover { background: #f8faff; border-color: #cdd7e6; }
-.study-category-list > button.active { background: #f1f4ff; border-color: #bbc6f3; color: #4053ca; }
+.study-category-list > button:hover {
+  transform: translateY(-1px);
+  background: rgba(248, 250, 255, 0.82);
+  border-color: rgba(91, 109, 246, 0.28);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 3px 0 rgba(63,77,104,.05),
+    0 10px 24px rgba(91, 109, 246, 0.10);
+}
+.study-category-list > button.active {
+  background: rgba(241, 244, 255, 0.78);
+  border-color: rgba(91, 109, 246, 0.35);
+  color: #4053ca;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    0 1px 0 rgba(63,77,104,.04),
+    0 4px 12px rgba(91, 109, 246, 0.08);
+}
 .study-category-list > button b { color: var(--muted); font-size: 9px; font-weight: 650; }
 .study-library-section { margin-top: 5px; color: var(--faint); font-size: 9px; font-weight: 760; letter-spacing: .05em; }
 .add-category-button { justify-content: flex-start !important; color: #5364c9 !important; border-style: dashed !important; }
@@ -1243,19 +1266,37 @@ button { -webkit-tap-highlight-color: transparent; }
   align-items: center;
   gap: 7px;
   padding: 5px 7px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fff;
+  border: 1px solid rgba(223, 230, 240, 0.75);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.62);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    0 1px 0 rgba(63,77,104,.04),
+    0 4px 12px rgba(38,54,82,.05);
   color: var(--muted);
   font-size: 10px;
   cursor: pointer;
+  transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease, background-color .12s ease;
+}
+.joined-page-list label:hover,
+.simple-page-picker label:hover,
+.precise-mask-list label:hover {
+  transform: translateY(-1px);
+  border-color: rgba(91, 109, 246, 0.28);
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 3px 0 rgba(63,77,104,.05),
+    0 10px 24px rgba(91, 109, 246, 0.10);
 }
 .simple-category-checks label.included,
 .joined-page-list label.included,
 .simple-page-picker label.included,
 .precise-mask-list label.included {
-  background: #f7f9ff;
-  border-color: #ccd5ef;
+  background: rgba(247, 249, 255, 0.78);
+  border-color: rgba(91, 109, 246, 0.30);
   color: var(--ink);
 }
 .simple-category-checks input,
@@ -1601,14 +1642,33 @@ button { -webkit-tap-highlight-color: transparent; }
 }
 
 .page-directory-item {
-  transition: transform .12s ease, box-shadow .12s ease;
-  box-shadow: 0 1px 0 rgba(63,77,104,.03);
+  border: 1px solid rgba(223, 230, 240, 0.75);
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.62);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.75),
+    0 1px 0 rgba(63,77,104,.04),
+    0 4px 12px rgba(38,54,82,.05);
+  transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease, background-color .12s ease;
+}
+.page-directory-item.is-current {
+  border-color: rgba(91, 109, 246, 0.35);
+  background: rgba(238, 242, 255, 0.75);
 }
 .page-directory-item:hover {
   transform: translateY(-1px);
-  box-shadow: 0 3px 0 rgba(63,77,104,.06), 0 7px 14px rgba(38,54,82,.07);
+  border-color: rgba(91, 109, 246, 0.30);
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 3px 0 rgba(63,77,104,.05),
+    0 10px 24px rgba(91, 109, 246, 0.10);
 }
 .page-directory-item:active {
   transform: translateY(0);
-  box-shadow: 0 1px 0 rgba(63,77,104,.04);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    0 1px 0 rgba(63,77,104,.04);
 }
