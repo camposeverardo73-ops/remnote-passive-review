@@ -1814,6 +1814,14 @@ function MindmapViewer() {
     // correct scope's queue. Bypass navigateToCard's key lookup, which can
     // silently fail when the runtime index is inconsistent, leaving the UI
     // stuck in "preparing next question" with no active region.
+    // After scoring, never auto-jump to a different page. The user stays on
+    // the current page; they navigate manually via the directory or filter buttons.
+    if (afterScore && first.sourceId !== currentSource?.source_id) {
+      activeRegionIdRef.current = null;
+      setActiveRegionId(null);
+      setSourceMessage(`本页已无待复习卡，下一张在《${first.sourceTitle ?? '其他页面'}》——点击顶部目录或筛选按钮手动前往。`);
+      return;
+    }
     await navigateToStudyItem(first, lookupMs, nextFilter);
     const label = nextFilter === 'DUE' ? '到期' : nextFilter === 'NEW' ? '新卡' : nextFilter === 'COMPLETED' ? '完成' : '剩余';
     if (!afterScore) {
