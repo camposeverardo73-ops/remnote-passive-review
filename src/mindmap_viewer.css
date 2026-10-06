@@ -1599,3 +1599,16 @@ button { -webkit-tap-highlight-color: transparent; }
   }
   .rn-side-panel { top: calc(126px + env(safe-area-inset-top, 0px)); }
 }
+
+.page-directory-item {
+  transition: transform .12s ease, box-shadow .12s ease;
+  box-shadow: 0 1px 0 rgba(63,77,104,.03);
+}
+.page-directory-item:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 0 rgba(63,77,104,.06), 0 7px 14px rgba(38,54,82,.07);
+}
+.page-directory-item:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 0 rgba(63,77,104,.04);
+}
