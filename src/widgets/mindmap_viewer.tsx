@@ -2150,15 +2150,13 @@ function MindmapViewer() {
                   return (
                     <div
                       key={source.source_id}
-                      className="page-directory-item"
+                      className={`page-directory-item${isCurrent ? ' is-current' : ''}`}
                       style={{
                         display: 'flex',
                         alignItems: 'center',
                         gap: 8,
                         width: '100%',
                         padding: '8px 10px',
-                        borderRadius: 8,
-                        backgroundColor: isCurrent ? '#eef2ff' : 'transparent',
                       }}
                     >
                       <span style={{ minWidth: 40, fontWeight: 600, flexShrink: 0, fontSize: 13, color: isCurrent ? '#1e293b' : '#475569' }}>
