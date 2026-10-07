@@ -487,6 +487,9 @@ function MindmapViewer() {
   };
   const [drafts, setDrafts] = useState<ManualRegionDraft[]>([]);
   const [selectedDraftId, setSelectedDraftId] = useState<string | null>(null);
+  const [editorPanelHidden, setEditorPanelHidden] = useState(false);
+  const [editorPanelPos, setEditorPanelPos] = useState({ x: 0, y: 0 });
+  const editorPanelDrag = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
   const [saveState, setSaveState] = useState<'IDLE' | 'SAVING' | 'ERROR'>('IDLE');
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [transform, setTransform] = useState<Transform>({ x: 0, y: 0, scale: 1 });
@@ -2709,8 +2712,73 @@ function MindmapViewer() {
         ) : null}
 
         {mode === 'edit' ? (
-          <aside className="editor-panel">
-            <div className="editor-panel-title">手动遮挡 · {drafts.length} 个</div>
+          editorPanelHidden ? (
+            <button
+              type="button"
+              title="显示手动遮挡面板"
+              onClick={() => setEditorPanelHidden(false)}
+              style={{
+                position: 'absolute',
+                right: 12,
+                bottom: 12,
+                zIndex: 9,
+                width: 36,
+                height: 36,
+                borderRadius: '50%',
+                border: '1px solid rgba(223, 230, 240, 0.8)',
+                background: 'rgba(255,255,255,.92)',
+                boxShadow: '0 4px 14px rgba(38,54,82,.14)',
+                cursor: 'pointer',
+                fontSize: 16,
+                lineHeight: 1,
+              }}
+            >◫</button>
+          ) : (
+          <aside
+            className="editor-panel"
+            style={{ transform: `translate(${editorPanelPos.x}px, ${editorPanelPos.y}px)` }}
+          >
+            <div
+              className="editor-panel-title"
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'move', userSelect: 'none' }}
+              onPointerDown={(event) => {
+                editorPanelDrag.current = {
+                  startX: event.clientX,
+                  startY: event.clientY,
+                  origX: editorPanelPos.x,
+                  origY: editorPanelPos.y,
+                };
+                (event.target as HTMLElement).setPointerCapture?.(event.pointerId);
+              }}
+              onPointerMove={(event) => {
+                const drag = editorPanelDrag.current;
+                if (!drag) return;
+                setEditorPanelPos({
+                  x: drag.origX + event.clientX - drag.startX,
+                  y: drag.origY + event.clientY - drag.startY,
+                });
+              }}
+              onPointerUp={() => { editorPanelDrag.current = null; }}
+              onPointerCancel={() => { editorPanelDrag.current = null; }}
+            >
+              <span>手动遮挡 · {drafts.length} 个</span>
+              <button
+                type="button"
+                title="隐藏面板"
+                aria-label="隐藏手动遮挡面板"
+                onClick={(event) => { event.stopPropagation(); setEditorPanelHidden(true); }}
+                onPointerDown={(event) => event.stopPropagation()}
+                style={{
+                  border: 'none',
+                  background: 'transparent',
+                  cursor: 'pointer',
+                  fontSize: 14,
+                  color: '#64748b',
+                  padding: '2px 6px',
+                  lineHeight: 1,
+                }}
+              >×</button>
+            </div>
             {selectedDraft ? (
               <>
                 <div className="region-auto-label">{selectedDraft.label || '当前遮挡'}</div>
@@ -2736,6 +2804,7 @@ function MindmapViewer() {
             ) : null}
             <div className="no-delete-note">删除遮挡只停用显示；不会删除或移入垃圾箱任何 Rem/Card。</div>
           </aside>
+          )
         ) : null}
 
         {currentSource ? (
